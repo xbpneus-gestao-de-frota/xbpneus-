@@ -1,28 +1,31 @@
-services:
-  # Backend Django
-  - type: web
-    name: xbpneus-backend
-    env: python
-    region: oregon
-    plan: free
-    branch: main
-    buildCommand: "./build.sh"
-    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 4 --threads 2 --timeout 120"
-    healthCheckPath: /healthz/
+# Render Blueprint for XBPNEUS
+# Docs: https://render.com/docs/blueprint-spec
+previews:
+  generation: automatic
 
-    envVars: 
-      - key: PYTHON_VERSION
-        value: 3.11.0
-      - key: DJANGO_SUPERUSER_PASSWORD
-        generateValue: true
-      - key: DEBUG
-        value: False
+databases:
+  - name: xbpneus-db
+    plan: starter
+    region: virginia
+    databaseName: xbpneus
+    user: xbpneus
+
+services:
+  # Django backend (Gunicorn)
+  - type: web
+    name: xbpneus-api
+    runtime: python
+    branch: main
+    plan: starter
+    region: virginia
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+    healthCheckPath: /
+    envVars:
+      - fromGroup: xbpneus-common
       - key: DJANGO_SETTINGS_MODULE
-        value: config.render_production
-      - key: SECRET_KEY
-        generateValue: true
-      - key: ALLOWED_HOSTS
-        value: .onrender.com
+        value: config.settings
       - key: DATABASE_URL
         fromDatabase:
           name: xbpneus-db
@@ -30,59 +33,50 @@ services:
       - key: REDIS_URL
         fromService:
           type: keyvalue
-          name: xbpneus-redis
+          name: xbpneus-kv
           property: connectionString
-      - key: DJANGO_DEBUG
-        value: False
-      - key: SESSION_COOKIE_SECURE
-        value: True
-      - key: CSRF_COOKIE_SECURE
-        value: True
-      - key: SECURE_SSL_REDIRECT
-        value: False
-      - key: SECURE_HSTS_SECONDS
-        value: 31536000
-      - key: SECURE_HSTS_INCLUDE_SUBDOMAINS
-        value: True
-      - key: SECURE_HSTS_PRELOAD
-        value: True
-      - key: PAGE_SIZE
-        value: 20
-      - key: CORS_ALLOWED_ORIGINS
-        value: https://xbpneus-frontend.onrender.com
-      - key: CORS_ALLOW_CREDENTIALS
-        value: True
 
-  # Frontend React (Static Site)
+  # Frontend static site (Vite/React or similar)
   - type: web
     name: xbpneus-frontend
-    env: static
-branch: main
+    runtime: static
+    branch: main
     rootDir: frontend
-    buildCommand: "npm ci --include=dev && npm run build"
-     staticPublishPath: ./dist
-    envVars: 
-      - key: NODE_VERSION
-        value: 22.13.0
-      - key: VITE_API_URL
-        value: https://xbpneus-backend.onrender.com
-      - key: NODE_ENV
-        value: production
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - fromGroup: xbpneus-common
+      # If your frontend needs the public API URL, set this after the first deploy:
+      # - key: VITE_API_BASE_URL
+      #   value: https://xbpneus-api.onrender.com
 
-  # Redis (Key Value)
+  # Redis-compatible Key Value store
   - type: keyvalue
-    name: xbpneus-redis
-    region: oregon
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList:
-      - source: 0.0.0.0/0
-        description: Allow all connections
+    name: xbpneus-kv
+    plan: starter
+    region: virginia
+    # ipAllowList: []  # keep private; leave empty for internal only
 
-databases:
-  - name: xbpneus-db
-    databaseName: xbpneus
-    user: xbpneus
-    region: oregon
-    plan: free
-
+envVarGroups:
+  - name: xbpneus-common
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true   # Django secret
+      - key: DEBUG
+        value: "false"
+      - key: ALLOWED_HOSTS
+        sync: false           # set your onrender.com/custom domain here after first deploy
+      - key: TIME_ZONE
+        value: America/Sao_Paulo
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Optional observability
+      - key: SENTRY_DSN
+        sync: false
+      # Optional CORS
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
