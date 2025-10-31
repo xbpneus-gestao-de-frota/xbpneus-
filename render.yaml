@@ -60,8 +60,7 @@ services:
 branch: main
     rootDir: frontend
     buildCommand: "npm ci --include=dev && npm run build"
-    statistaticPublishPath: ./dist
-    
+     staticPublishPath: ./dist
     envVars: 
       - key: NODE_VERSION
         value: 22.13.0
